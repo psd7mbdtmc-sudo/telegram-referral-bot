@@ -10,7 +10,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-# تحميل متغيرات البيئة وتنظيف التوكن من المسافات
+# تحميل متغيرات البيئة
 load_dotenv()
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
@@ -42,4 +42,30 @@ def run_server():
     server.serve_forever()
 
 # --- 3. نظام الإحالة (الرد على أمر start) ---
-@dp.
+@dp.message(CommandStart())
+async def start_cmd(message: types.Message, command: CommandObject):
+    user_id = message.from_user.id
+    bot_info = await bot.get_me()
+    
+    # التحقق هل المستخدم جديد؟
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+    is_new_user = cursor.fetchone() is None
+    
+    if is_new_user:
+        # تسجيل المستخدم الجديد
+        cursor.execute("INSERT INTO users (user_id, invites) VALUES (?, 0)", (user_id,))
+        conn.commit()
+        
+        # التحقق من الداعي
+        inviter_id = command.args
+        if inviter_id and inviter_id.isdigit() and int(inviter_id) != user_id:
+            cursor.execute("UPDATE users SET invites = invites + 1 WHERE user_id = ?", (int(inviter_id),))
+            conn.commit()
+            try:
+                await bot.send_message(int(inviter_id), "🎉 مبروك! قام شخص جديد بالدخول عبر رابط الإحالة الخاص بك.")
+            except Exception as e:
+                logging.error(f"Failed to send notification: {e}")
+
+    # الرابط الأول: تكوين رابط الإحالة الخاص بالبوت تلقائياً للمشاركة
+    ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
+    share_url = f"
