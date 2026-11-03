@@ -8,30 +8,32 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, CommandObject
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-# تحميل متغيرات البيئة
+# تحميل متغيرات البيئة وتنظيف التوكن من المسافات
 load_dotenv()
-
-# السطر السحري: جلب التوكن ومسح أي مسافات أو أسطر مخفية تلقائياً
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
-# إعداد السجلات (Logs) لتظهر بوضوح في منصة Render
+# إعداد السجلات (Logs)
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
-# تهيئة البوت
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# خادم ويب مصغر لتلبية شروط منفذ Render المجاني
+# --- 1. إعداد قاعدة البيانات ---
+conn = sqlite3.connect('referrals.db', check_same_thread=False)
+cursor = conn.cursor()
+cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, invites INTEGER DEFAULT 0)''')
+conn.commit()
+
+# --- 2. خادم الويب (للبقاء مجانياً على Render) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Bot is running successfully!")
-        
     def log_message(self, format, *args):
-        return # كتم سجلات الفحص المتكررة ليبقى السجل نظيفاً
+        return 
 
 def run_server():
     port = int(os.environ.get("PORT", 10000))
@@ -39,21 +41,5 @@ def run_server():
     logging.info(f"Web server started on port {port}")
     server.serve_forever()
 
-# أمر البدء للتجربة
-@dp.message(CommandStart())
-async def start_cmd(message: types.Message):
-    await message.answer("أهلاً بك! تم تشغيل البوت بنجاح وتجاوز مشكلة المسافات.")
-
-async def main():
-    # تشغيل خادم الويب في الخلفية حتى لا يتعطل البوت
-    threading.Thread(target=run_server, daemon=True).start()
-    
-    # تشغيل بوت تيليجرام
-    logging.info("جاري تشغيل بوت تيليجرام...")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    if not BOT_TOKEN:
-        logging.error("خطأ: التوكن غير موجود أو فارغ!")
-    else:
-        asyncio.run(main())
+# --- 3. نظام الإحالة (الرد على أمر start) ---
+@dp.
