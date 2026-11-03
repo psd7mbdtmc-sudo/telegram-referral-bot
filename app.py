@@ -14,7 +14,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQu
 load_dotenv()
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
-# إعداد السجلات (Logs)
+# إعداد السجلات
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 bot = Bot(token=BOT_TOKEN)
@@ -26,7 +26,7 @@ cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, invites INTEGER DEFAULT 0)''')
 conn.commit()
 
-# --- 2. خادم الويب (للبقاء مجانياً على Render) ---
+# --- 2. خادم الويب ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -41,22 +41,19 @@ def run_server():
     logging.info(f"Web server started on port {port}")
     server.serve_forever()
 
-# --- 3. نظام الإحالة (الرد على أمر start) ---
+# --- 3. نظام الإحالة ---
 @dp.message(CommandStart())
 async def start_cmd(message: types.Message, command: CommandObject):
     user_id = message.from_user.id
     bot_info = await bot.get_me()
     
-    # التحقق هل المستخدم جديد؟
     cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
     is_new_user = cursor.fetchone() is None
     
     if is_new_user:
-        # تسجيل المستخدم الجديد
         cursor.execute("INSERT INTO users (user_id, invites) VALUES (?, 0)", (user_id,))
         conn.commit()
         
-        # التحقق من الداعي
         inviter_id = command.args
         if inviter_id and inviter_id.isdigit() and int(inviter_id) != user_id:
             cursor.execute("UPDATE users SET invites = invites + 1 WHERE user_id = ?", (int(inviter_id),))
@@ -66,6 +63,50 @@ async def start_cmd(message: types.Message, command: CommandObject):
             except Exception as e:
                 logging.error(f"Failed to send notification: {e}")
 
-    # الرابط الأول: تكوين رابط الإحالة الخاص بالبوت تلقائياً للمشاركة
     ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
-    share_url = f"
+    share_url = f"https://t.me/share/url?url={ref_link}&text=انضم إلينا للحصول على مباريات مضمونة 100%!"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 مشاركة الرابط", url=share_url)],
+        [InlineKeyboardButton(text="🔄 التحقق من المشاركة", callback_data="check_invites")]
+    ])
+    
+    text = (
+        "أهلاً بك في قناة ALGOSPORT-PRO! 🏆\n"
+        "خطوة بسيطة تفصلك عن الانضمام إلينا وضمان مكانك بين الفائزين معنا:\n\n"
+        "🔗 **الخطوة المطلوبة:** قم بمشاركة رابط القناة مع 10 أشخاص من أصدقائك أو المجموعات المهتمة.\n\n"
+        "📥 **ماذا بعد؟** بمجرد إتمام المشاركة بنجاح، سيتم إرسال رابط القناة الأصلي إليك مباشرة للدخول إلى القناة والحصول على مباريات مضمونة 100%.\n\n"
+        "نحن بانتظارك، بالتوفيق! 🚀"
+    )
+    await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+
+# --- 4. برمجة زر "التحقق من المشاركة" ---
+@dp.callback_query(F.data == "check_invites")
+async def check_invites_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    cursor.execute("SELECT invites FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    invites = result[0] if result else 0
+
+    if invites >= 10:
+        channel_link = "https://t.me/+ZO35DK2257AwMjk8"
+        await callback.message.answer(f"🎉 تهانينا! لقد أكملت 10 دعوات بنجاح.\nإليك رابط الانضمام للقناة:\n{channel_link}")
+        await callback.answer()
+    else:
+        remaining = 10 - invites
+        await callback.answer(f"❌ لديك {invites} دعوات فقط.\nتحتاج إلى {remaining} دعوات إضافية للحصول على الرابط.", show_alert=True)
+
+async def main():
+    threading.Thread(target=run_server, daemon=True).start()
+    
+    logging.info("تنظيف الاتصالات القديمة...")
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    logging.info("جاري تشغيل بوت تيليجرام...")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    if not BOT_TOKEN:
+        logging.error("خطأ: التوكن غير موجود أو فارغ!")
+    else:
+        asyncio.run(main())
